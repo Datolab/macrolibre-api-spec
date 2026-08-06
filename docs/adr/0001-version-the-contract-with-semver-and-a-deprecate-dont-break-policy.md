@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed <!-- Proposed | Accepted | Deprecated | Superseded by [ADR-XXXX](XXXX-filename.md) -->
+Accepted <!-- Proposed | Accepted | Deprecated | Superseded by [ADR-XXXX](XXXX-filename.md) -->
 
 ## Date
 
