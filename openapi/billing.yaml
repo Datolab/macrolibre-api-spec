@@ -13,8 +13,159 @@ servers:
   - url: https://api.datocal.com
 security:
   - bearerAuth: []
-paths: {}
+tags:
+  - name: Billing
+    description: >-
+      Resolve PPP-adjusted pricing and open a Stripe checkout session to
+      upgrade to Kcal Pro (FR-F-3).
+paths:
+  /prices:
+    get:
+      operationId: listPrices
+      summary: List PPP-adjusted prices
+      description: >-
+        Resolve the purchase-power-parity price for each Pro plan (FR-F-3).
+        Pass `region` to price for a specific market; omit it to let the server
+        infer the region from the caller.
+      tags: [Billing]
+      parameters:
+        - name: region
+          in: query
+          required: false
+          description: ISO 3166-1 alpha-2 region code (e.g. `GT`, `CR`).
+          schema:
+            type: string
+      responses:
+        '200':
+          description: The available plans and their localized prices.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Price'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /checkout/sessions:
+    post:
+      operationId: createCheckoutSession
+      summary: Create a checkout session
+      description: >-
+        Open a Stripe checkout session for a Pro plan (FR-F-3). Returns the URL
+        the client redirects the user to. Fulfilment happens server-to-server
+        via Stripe webhooks, outside this contract.
+      tags: [Billing]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CheckoutSessionRequest'
+      responses:
+        '201':
+          description: The created checkout session.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutSession'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     bearerAuth:
       $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'
+
+  responses:
+    ValidationError:
+      description: The request body failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication is required or the provided token is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+
+  schemas:
+    Plan:
+      type: string
+      description: A purchasable Kcal Pro plan.
+      enum:
+        - pro_monthly
+        - pro_annual
+
+    Price:
+      type: object
+      description: A plan's PPP-adjusted price for a region.
+      required:
+        - plan
+        - amount
+        - currency
+        - interval
+      properties:
+        plan:
+          $ref: '#/components/schemas/Plan'
+        region:
+          type: [string, 'null']
+          description: Region this price applies to; null when server-inferred.
+        amount:
+          type: integer
+          minimum: 0
+          description: Price in the currency's minor units (e.g. cents).
+        currency:
+          type: string
+          description: ISO 4217 currency code.
+        interval:
+          type: string
+          enum:
+            - month
+            - year
+
+    CheckoutSessionRequest:
+      type: object
+      required:
+        - plan
+        - return_url
+      properties:
+        plan:
+          $ref: '#/components/schemas/Plan'
+        return_url:
+          type: string
+          format: uri
+          description: Where Stripe returns the user after checkout.
+
+    CheckoutSession:
+      type: object
+      required:
+        - id
+        - checkout_url
+        - amount
+        - currency
+        - expires_at
+      properties:
+        id:
+          type: string
+          description: Stripe checkout session id.
+        checkout_url:
+          type: string
+          format: uri
+          description: URL to redirect the user to for payment.
+        amount:
+          type: integer
+          minimum: 0
+          description: Charged amount in the currency's minor units.
+        currency:
+          type: string
+          description: ISO 4217 currency code.
+        expires_at:
+          type: string
+          format: date-time
