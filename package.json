@@ -1,0 +1,13 @@
+{
+  "name": "macrolibre-api-spec",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Public OpenAPI contract between datocal.com and macrolibre.app",
+  "scripts": {
+    "lint": "redocly lint",
+    "bundle": "redocly bundle foods --output dist/foods.yaml && redocly bundle releases --output dist/releases.yaml && redocly bundle sync --output dist/sync.yaml && redocly bundle billing --output dist/billing.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "^1.25.0"
+  }
+}

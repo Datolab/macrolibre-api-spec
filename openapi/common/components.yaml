@@ -1,0 +1,91 @@
+components:
+  securitySchemes:
+    anonymousClientId:
+      type: apiKey
+      in: header
+      name: X-Client-Id
+      description: >-
+        Client-generated identifier for free-tier/anonymous callers, used
+        only for daily quota accounting (FR-F-1). Not an auth mechanism —
+        carries no privileges beyond quota tracking.
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Kcal Pro user session token (FR-F-2).
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+      description: B2B keyed access, metered per contract (FR-F-4).
+
+  parameters:
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+      description: >-
+        Opaque pagination cursor from a previous response's `next_cursor`.
+        Clients must not parse or construct this value.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        default: 50
+        maximum: 100
+
+  headers:
+    RateLimitLimit:
+      description: The caller's quota ceiling for the current window.
+      schema:
+        type: integer
+    RateLimitRemaining:
+      description: Requests remaining in the current window.
+      schema:
+        type: integer
+    RateLimitReset:
+      description: Unix timestamp when the current window resets.
+      schema:
+        type: integer
+    RetryAfter:
+      description: Seconds to wait before retrying, present on 429 responses.
+      schema:
+        type: integer
+
+  schemas:
+    Page:
+      type: object
+      required: [data, next_cursor]
+      properties:
+        next_cursor:
+          type: string
+          nullable: true
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+
+  responses:
+    TooManyRequests:
+      description: Caller is over their tier's quota (FR-F-1/F-2/F-4).
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        X-RateLimit-Limit:
+          $ref: '#/components/headers/RateLimitLimit'
+        X-RateLimit-Remaining:
+          $ref: '#/components/headers/RateLimitRemaining'
+        X-RateLimit-Reset:
+          $ref: '#/components/headers/RateLimitReset'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'

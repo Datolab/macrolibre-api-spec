@@ -1,0 +1,20 @@
+openapi: 3.1.0
+info:
+  title: Kcal Sync API
+  version: 0.1.0
+  license:
+    name: CC0 1.0 Universal
+    identifier: CC0-1.0
+  description: >-
+    End-to-end-encrypted blob storage for Kcal Pro multi-device sync (SRS
+    Epic E: FR-E-2..5). The server stores opaque, client-encrypted blobs and
+    never has access to plaintext health data.
+servers:
+  - url: https://api.datocal.com
+security:
+  - bearerAuth: []
+paths: {}
+components:
+  securitySchemes:
+    bearerAuth:
+      $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'

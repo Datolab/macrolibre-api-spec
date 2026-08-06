@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+
+# CI runs `npm ci`, which requires a committed lockfile; override the
+# global ignore of package-lock.json for this repo.
+!package-lock.json

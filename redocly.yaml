@@ -1,0 +1,11 @@
+apis:
+  foods:
+    root: openapi/foods.yaml
+  releases:
+    root: openapi/releases.yaml
+  sync:
+    root: openapi/sync.yaml
+  billing:
+    root: openapi/billing.yaml
+extends:
+  - recommended

@@ -1,0 +1,26 @@
+openapi: 3.1.0
+info:
+  title: Kcal Dataset Release API
+  version: 0.1.0
+  license:
+    name: CC0 1.0 Universal
+    identifier: CC0-1.0
+  description: >-
+    Versioned, signed dataset releases and delta-sync (SRS Epic C:
+    FR-C-1..5). Open-base layer is public; verified-layer deltas require an
+    authenticated tier — see `common/components.yaml`'s security schemes.
+servers:
+  - url: https://releases.datocal.com
+security:
+  - anonymousClientId: []
+  - bearerAuth: []
+  - apiKeyAuth: []
+paths: {}
+components:
+  securitySchemes:
+    anonymousClientId:
+      $ref: './common/components.yaml#/components/securitySchemes/anonymousClientId'
+    bearerAuth:
+      $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'
+    apiKeyAuth:
+      $ref: './common/components.yaml#/components/securitySchemes/apiKeyAuth'
