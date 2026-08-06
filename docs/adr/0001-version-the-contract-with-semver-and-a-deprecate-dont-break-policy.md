@@ -152,8 +152,9 @@ Governance (resolving ADR-0004's open question) is gated by change type:
 ### Risks
 
 - Discipline can slip and a breaking change land in a minor by accident —
-  mitigate with a CI diff-lint (e.g. `redocly` breaking-change detection)
-  that fails when a minor/patch bump contains a breaking change
+  mitigate with a breaking-change gate (`oasdiff`) that diffs each change
+  against the last tag and fails when a minor/patch bump contains a breaking
+  change. Codified in the project `CLAUDE.md` and the `evolve-contract` skill.
 - The `0.x` phase permits breaking freely per semver, so the hard
   no-break guarantee only begins at `1.0.0`; consumers should treat any
   `0.x` pin as provisional
