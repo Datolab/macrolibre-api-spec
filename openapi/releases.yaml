@@ -15,7 +15,101 @@ security:
   - anonymousClientId: []
   - bearerAuth: []
   - apiKeyAuth: []
-paths: {}
+tags:
+  - name: Releases
+    description: >-
+      Discover, verify, and delta-sync signed dataset releases
+      (calendar-versioned `vYYYY.MM`).
+paths:
+  /releases:
+    get:
+      operationId: listReleases
+      summary: List dataset releases
+      description: >-
+        Enumerate available releases for a layer, newest first (FR-C-1).
+        Clients use this to find the latest version and to pick an earlier
+        version to roll back to (FR-C-5). The `open` layer is public; the
+        `verified` layer requires an authenticated tier (FR-C-4).
+      tags: [Releases]
+      parameters:
+        - $ref: '#/components/parameters/Layer'
+        - $ref: './common/components.yaml#/components/parameters/Cursor'
+        - $ref: './common/components.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of releases for the requested layer.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleasePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /releases/{version}:
+    get:
+      operationId: getReleaseManifest
+      summary: Get a release manifest
+      description: >-
+        Retrieve the signed manifest for a release (FR-C-3): record count,
+        checksum, changelog, and Ed25519 signature. Clients MUST verify the
+        signature before applying the release.
+      tags: [Releases]
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - $ref: '#/components/parameters/Layer'
+      responses:
+        '200':
+          description: The signed release manifest.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReleaseManifest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /releases/{version}/delta:
+    get:
+      operationId: getReleaseDelta
+      summary: Get a delta to a release
+      description: >-
+        Fetch the changed and removed records needed to advance a client from
+        its installed version to `version` (FR-C-2). Omit `from` (or pass a
+        version too old to delta from) to receive a full snapshot instead —
+        signalled by a null `from_version` in the response. The payload is
+        signed; clients MUST verify before applying (FR-C-3).
+      tags: [Releases]
+      parameters:
+        - $ref: '#/components/parameters/Version'
+        - $ref: '#/components/parameters/Layer'
+        - name: from
+          in: query
+          required: false
+          description: The client's currently installed version (`vYYYY.MM`).
+          schema:
+            $ref: '#/components/schemas/Version'
+      responses:
+        '200':
+          description: The delta (or full snapshot) to apply.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DatasetDelta'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     anonymousClientId:
@@ -24,3 +118,148 @@ components:
       $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'
     apiKeyAuth:
       $ref: './common/components.yaml#/components/securitySchemes/apiKeyAuth'
+
+  parameters:
+    Version:
+      name: version
+      in: path
+      required: true
+      description: Calendar version of the release (`vYYYY.MM`).
+      schema:
+        $ref: '#/components/schemas/Version'
+    Layer:
+      name: layer
+      in: query
+      required: true
+      description: Which dataset layer to operate on.
+      schema:
+        $ref: '#/components/schemas/Layer'
+
+  responses:
+    NotFound:
+      description: No release exists for the given version and layer.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Unauthorized:
+      description: The verified layer requires authentication; none was provided.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Forbidden:
+      description: The caller's tier is not entitled to the verified layer.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+
+  schemas:
+    Version:
+      type: string
+      description: Calendar version, `vYYYY.MM`.
+      pattern: '^v\d{4}\.\d{2}$'
+      examples:
+        - v2026.08
+
+    Layer:
+      type: string
+      description: >-
+        `open` is the public base dataset; `verified` is the
+        dietitian-verified layer, gated to authenticated tiers (FR-C-4).
+      enum:
+        - open
+        - verified
+
+    ReleaseSummary:
+      type: object
+      description: Identifying metadata for one dataset release.
+      required:
+        - version
+        - layer
+        - checksum
+        - published_at
+      properties:
+        version:
+          $ref: '#/components/schemas/Version'
+        layer:
+          $ref: '#/components/schemas/Layer'
+        checksum:
+          type: string
+          description: SHA-256 hex digest of the full release snapshot.
+        published_at:
+          type: string
+          format: date-time
+
+    ReleasePage:
+      description: A cursor-paginated page of releases.
+      allOf:
+        - $ref: './common/components.yaml#/components/schemas/Page'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/ReleaseSummary'
+
+    ReleaseManifest:
+      description: A release's full, signed manifest (FR-C-3).
+      allOf:
+        - $ref: '#/components/schemas/ReleaseSummary'
+        - type: object
+          required:
+            - record_count
+            - signature
+          properties:
+            record_count:
+              type: integer
+              minimum: 0
+              description: Number of food records in the full snapshot.
+            changelog:
+              type: [string, 'null']
+              description: Human-readable summary of what changed in this release.
+            signature:
+              type: string
+              description: Base64-encoded Ed25519 signature over the release payload.
+
+    DatasetDelta:
+      type: object
+      description: >-
+        The records to apply to move a client to `to_version`. A null
+        `from_version` means this is a full snapshot rather than a delta.
+      required:
+        - from_version
+        - to_version
+        - layer
+        - checksum
+        - signature
+        - changed
+        - removed
+      properties:
+        from_version:
+          oneOf:
+            - $ref: '#/components/schemas/Version'
+            - type: 'null'
+          description: The version this delta applies on top of; null for a full snapshot.
+        to_version:
+          $ref: '#/components/schemas/Version'
+        layer:
+          $ref: '#/components/schemas/Layer'
+        checksum:
+          type: string
+          description: SHA-256 hex digest of the resulting dataset after applying.
+        signature:
+          type: string
+          description: Base64-encoded Ed25519 signature over the delta payload.
+        changed:
+          type: array
+          description: Added or modified food records.
+          items:
+            $ref: './common/components.yaml#/components/schemas/Food'
+        removed:
+          type: array
+          description: Ids of records removed since `from_version` (tombstones).
+          items:
+            type: string
+            format: uuid
