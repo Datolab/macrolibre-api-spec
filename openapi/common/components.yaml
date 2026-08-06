@@ -61,8 +61,7 @@ components:
       required: [data, next_cursor]
       properties:
         next_cursor:
-          type: string
-          nullable: true
+          type: [string, 'null']
 
     Error:
       type: object

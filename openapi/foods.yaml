@@ -15,7 +15,158 @@ security:
   - anonymousClientId: []
   - bearerAuth: []
   - apiKeyAuth: []
-paths: {}
+tags:
+  - name: Foods
+    description: Search and look up foods across the open base and verified layers.
+  - name: Submissions
+    description: >-
+      Community submission flow (FR-B-4): submit a food, then track it through
+      the moderation queue and dietitian review.
+paths:
+  /foods:
+    get:
+      operationId: searchFoods
+      summary: Search foods
+      description: >-
+        Full-text search across the open base and verified layers (FR-B-2).
+        Every result carries a `provenance_badge` (FR-B-3). Results are
+        cursor-paginated. Available to all tiers, including anonymous callers.
+      tags: [Foods]
+      parameters:
+        - name: q
+          in: query
+          required: false
+          description: >-
+            Free-text query matched against localized food names. Omit to
+            browse the whole database (optionally narrowed by `region`).
+          schema:
+            type: string
+        - name: region
+          in: query
+          required: false
+          description: Restrict results to a single region code (e.g. `GT`, `CR`).
+          schema:
+            type: string
+        - $ref: './common/components.yaml#/components/parameters/Cursor'
+        - $ref: './common/components.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of matching foods.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FoodPage'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /foods/{foodId}:
+    get:
+      operationId: getFood
+      summary: Get a food by id
+      description: >-
+        Retrieve a single verified or open food record by its stable id
+        (FR-B-2/FR-B-3).
+      tags: [Foods]
+      parameters:
+        - $ref: '#/components/parameters/FoodId'
+      responses:
+        '200':
+          description: The requested food.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Food'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /foods/{foodId}/flags:
+    post:
+      operationId: flagFood
+      summary: Flag a suspect food
+      description: >-
+        Report a suspect food entry from the result card (FR-B-7). The flag is
+        queued for dietitian review; it does not modify the food directly.
+      tags: [Foods]
+      parameters:
+        - $ref: '#/components/parameters/FoodId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodFlag'
+      responses:
+        '202':
+          description: Flag accepted and queued for review. No content.
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /submissions:
+    post:
+      operationId: submitFood
+      summary: Submit a food for review
+      description: >-
+        Submit a new food to the moderation queue (FR-B-4). Requires an
+        authenticated account so the submission can be attributed and, on
+        acceptance, earn the contributor Pro credit (FR-B-5).
+      tags: [Submissions]
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FoodSubmission'
+      responses:
+        '201':
+          description: Submission accepted into the moderation queue.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /submissions/{submissionId}:
+    get:
+      operationId: getSubmission
+      summary: Get a submission's status
+      description: >-
+        Track one of the caller's own submissions through the review flow —
+        the audit trail required by FR-B-4. Callers may only read their own
+        submissions.
+      tags: [Submissions]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: submissionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: The submission's current review state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Submission'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     anonymousClientId:
@@ -24,3 +175,184 @@ components:
       $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'
     apiKeyAuth:
       $ref: './common/components.yaml#/components/securitySchemes/apiKeyAuth'
+
+  parameters:
+    FoodId:
+      name: foodId
+      in: path
+      required: true
+      description: Stable identifier of the food.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: The requested resource does not exist.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    ValidationError:
+      description: The request body or parameters failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication is required or the provided credentials are invalid.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Forbidden:
+      description: The caller is authenticated but not permitted to access this resource.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+
+  schemas:
+    ProvenanceBadge:
+      type: string
+      description: >-
+        Trust provenance shown on every result (FR-B-3), most to least
+        authoritative.
+      enum:
+        - official
+        - dietitian_verified
+        - open_data
+        - user_submitted
+
+    Food:
+      type: object
+      description: A food record with per-100g macronutrients.
+      required:
+        - id
+        - name_en
+        - provenance_badge
+        - kcal_100g
+        - protein_100g
+        - carbs_100g
+        - fat_100g
+      properties:
+        id:
+          type: string
+          format: uuid
+        name_en:
+          type: string
+          description: English name.
+        name_es:
+          type: [string, 'null']
+          description: Spanish name, when available.
+        region:
+          type: [string, 'null']
+          description: Region code the food is most relevant to (e.g. `GT`).
+        provenance_badge:
+          $ref: '#/components/schemas/ProvenanceBadge'
+        kcal_100g:
+          type: number
+          minimum: 0
+          description: Energy per 100 g, in kilocalories.
+        protein_100g:
+          type: number
+          minimum: 0
+          description: Protein per 100 g, in grams.
+        carbs_100g:
+          type: number
+          minimum: 0
+          description: Carbohydrate per 100 g, in grams.
+        fat_100g:
+          type: number
+          minimum: 0
+          description: Fat per 100 g, in grams.
+
+    FoodPage:
+      description: A cursor-paginated page of foods.
+      allOf:
+        - $ref: './common/components.yaml#/components/schemas/Page'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Food'
+
+    FoodSubmission:
+      type: object
+      description: >-
+        A community-contributed food awaiting review. Provenance and id are
+        assigned by the server, not the submitter.
+      required:
+        - name_en
+        - kcal_100g
+        - protein_100g
+        - carbs_100g
+        - fat_100g
+      properties:
+        name_en:
+          type: string
+        name_es:
+          type: [string, 'null']
+        region:
+          type: [string, 'null']
+        kcal_100g:
+          type: number
+          minimum: 0
+        protein_100g:
+          type: number
+          minimum: 0
+        carbs_100g:
+          type: number
+          minimum: 0
+        fat_100g:
+          type: number
+          minimum: 0
+
+    SubmissionStatus:
+      type: string
+      description: Where a submission sits in the moderation flow (FR-B-4).
+      enum:
+        - pending
+        - approved
+        - rejected
+
+    Submission:
+      type: object
+      description: The review state of a community submission.
+      required:
+        - id
+        - status
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          $ref: '#/components/schemas/SubmissionStatus'
+        reviewer_notes:
+          type: [string, 'null']
+          description: Dietitian's rejection reason or review comment, when present.
+        food_id:
+          type: [string, 'null']
+          format: uuid
+          description: >-
+            Id of the published food this submission became, set once
+            `status` is `approved`.
+
+    FoodFlag:
+      type: object
+      description: A report that a food entry is suspect (FR-B-7).
+      required:
+        - reason
+      properties:
+        reason:
+          type: string
+          description: Why the entry is being flagged.
+          enum:
+            - incorrect_data
+            - duplicate
+            - inappropriate
+            - other
+        note:
+          type: [string, 'null']
+          description: Optional free-text detail supporting the flag.
