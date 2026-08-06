@@ -13,8 +13,204 @@ servers:
   - url: https://api.datocal.com
 security:
   - bearerAuth: []
-paths: {}
+tags:
+  - name: Sync
+    description: >-
+      Push, pull, and delete opaque encrypted blobs across a Pro user's
+      devices. Conflicts resolve last-write-wins per blob (FR-E-3).
+paths:
+  /sync/changes:
+    get:
+      operationId: pullChanges
+      summary: Pull changed blobs
+      description: >-
+        Return blobs changed since the caller's last sync cursor (FR-E-3),
+        including tombstones for deleted entries. Omit `cursor` to pull the
+        full set. The returned `next_cursor` is the client's new sync position.
+      tags: [Sync]
+      parameters:
+        - $ref: './common/components.yaml#/components/parameters/Cursor'
+        - $ref: './common/components.yaml#/components/parameters/Limit'
+      responses:
+        '200':
+          description: A page of changed blobs.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptedBlobPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /sync/blobs/{blobId}:
+    put:
+      operationId: putBlob
+      summary: Push a blob
+      description: >-
+        Upsert an encrypted blob (FR-E-2). Conflicts resolve last-write-wins by
+        `client_updated_at`: if the stored blob is newer, it is kept and
+        returned unchanged (FR-E-3). The server cannot read the ciphertext.
+      tags: [Sync]
+      parameters:
+        - $ref: '#/components/parameters/BlobId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EncryptedBlobInput'
+      responses:
+        '200':
+          description: The effective (winning) blob after last-write-wins resolution.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EncryptedBlob'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+    delete:
+      operationId: deleteBlob
+      summary: Delete a blob
+      description: >-
+        Tombstone a blob so the deletion propagates to other devices on their
+        next pull (FR-E-3).
+      tags: [Sync]
+      parameters:
+        - $ref: '#/components/parameters/BlobId'
+      responses:
+        '204':
+          description: Blob tombstoned. No content.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
+  /sync/account:
+    delete:
+      operationId: deleteAccount
+      summary: Delete the account and its server data
+      description: >-
+        Schedule erasure of all of the caller's server-side data within 30 days
+        (FR-E-5). The client is responsible for confirming intent before
+        calling; this request is treated as the confirmed action.
+      tags: [Sync]
+      responses:
+        '202':
+          description: Erasure scheduled.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountDeletion'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: './common/components.yaml#/components/responses/TooManyRequests'
 components:
   securitySchemes:
     bearerAuth:
       $ref: './common/components.yaml#/components/securitySchemes/bearerAuth'
+
+  parameters:
+    BlobId:
+      name: blobId
+      in: path
+      required: true
+      description: Client-generated identifier for the blob.
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    NotFound:
+      description: No blob exists with the given id for this account.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    ValidationError:
+      description: The request body failed validation.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+    Unauthorized:
+      description: Authentication is required or the provided token is invalid.
+      content:
+        application/json:
+          schema:
+            $ref: './common/components.yaml#/components/schemas/Error'
+
+  schemas:
+    EncryptedBlobInput:
+      type: object
+      description: A client-encrypted blob to store. Plaintext is never sent.
+      required:
+        - ciphertext
+        - nonce
+        - client_updated_at
+      properties:
+        ciphertext:
+          type: string
+          contentEncoding: base64
+          description: The encrypted payload; opaque to the server.
+        nonce:
+          type: string
+          contentEncoding: base64
+          description: Per-blob encryption nonce.
+        client_updated_at:
+          type: string
+          format: date-time
+          description: Client's modification timestamp, used for last-write-wins.
+
+    EncryptedBlob:
+      description: A stored encrypted blob and its server-side sync metadata.
+      allOf:
+        - $ref: '#/components/schemas/EncryptedBlobInput'
+        - type: object
+          required:
+            - id
+            - updated_at
+            - deleted
+          properties:
+            id:
+              type: string
+              format: uuid
+            updated_at:
+              type: string
+              format: date-time
+              description: Server-recorded time of the winning write.
+            deleted:
+              type: boolean
+              description: True when this blob is a tombstone.
+
+    EncryptedBlobPage:
+      description: A cursor-paginated page of changed blobs.
+      allOf:
+        - $ref: './common/components.yaml#/components/schemas/Page'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/EncryptedBlob'
+
+    AccountDeletion:
+      type: object
+      description: Confirmation that server-side erasure has been scheduled.
+      required:
+        - status
+        - erasure_deadline
+      properties:
+        status:
+          type: string
+          enum:
+            - scheduled
+        erasure_deadline:
+          type: string
+          format: date-time
+          description: No later than 30 days after the request (FR-E-5).
