@@ -45,10 +45,10 @@ a future **major**, on or after `x-sunset`.
 
 ## 3. Apply the edit
 
-- Keep all four documents' `info.version` identical.
 - Shared shapes (e.g. `Food`) live in `openapi/common/components.yaml` — edit
   there, not per-document.
 - Use OpenAPI 3.1 nullables (`type: [x, 'null']`), never `nullable: true`.
+- Leave `info.version` alone — the release workflow owns it (step 5).
 
 ## 4. Verify (both gates must pass)
 
@@ -61,11 +61,14 @@ If `oasdiff` reports breaking changes and you intended a minor/patch, you
 missed a deprecate-alongside step — return to step 2. A genuinely intended
 breaking change means this is a **major** bump.
 
-## 5. Choose the bump and update versions
+## 5. Versioning is automated — don't do it by hand
 
-Per the classification and the `oasdiff` result: major / minor / patch. Set the
-new number in all four `info.version`. The git tag is cut separately (`vX.Y.Z`)
-and is the version consumers pin — confirm with the user before tagging.
+Do **not** set `info.version` yourself. On merge to `main`, the release workflow
+(ADR-0002, `.github/workflows/release.yml`) derives the bump from `oasdiff`,
+updates all four documents, writes `CHANGELOG.md`, and opens a release PR. Your
+job ends at the content change (steps 1–4); the pipeline versions it. After the
+release PR merges, a maintainer cuts the GPG-signed tag `vX.Y.Z` that consumers
+pin — tags are never created in CI.
 
 ## 6. Governance gate
 
@@ -76,5 +79,5 @@ and is the version consumers pin — confirm with the user before tagging.
 ## Never
 
 - Edit or delete a released path/field/enum value in place.
-- Let `info.version` drift between the four documents.
+- Hand-edit `info.version` — the release workflow owns it.
 - Cut a tag, or push a breaking change, without explicit user go-ahead.

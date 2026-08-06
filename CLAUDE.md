@@ -11,10 +11,17 @@ it walks the procedure below.
 
 ## Versioning
 
-- **Semantic Versioning**, one repo-wide version: keep all four documents'
-  `info.version` identical, matched to the git tag.
-- Bump: **additive or deprecation → minor**; **fix/clarification → patch**;
-  **removal or any breaking change → major**.
+- **Semantic Versioning**, one repo-wide version — all four documents'
+  `info.version` stay identical and match the git tag.
+- **Do not hand-edit `info.version`.** The release workflow (ADR-0002,
+  `.github/workflows/release.yml`) derives the bump from `oasdiff`, updates all
+  four documents, writes `CHANGELOG.md`, and opens the release PR. Hand-editing
+  breaks its tag-on-merge detection.
+- The bump the workflow applies: **additive or deprecation → minor**;
+  **fix/clarification → patch**; **removal or any breaking change → major**
+  (phase-adjusted during `0.x`).
+- After the release PR merges, a maintainer cuts the **GPG-signed** tag
+  (`git tag -s vX.Y.Z`) — tags are never created in CI.
 - Phases (ADR-0001): `0.0.x` alpha, `0.1.x`+ beta, `1.0.0` first stable.
 
 ## Compatibility — deprecate, don't break
