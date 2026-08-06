@@ -1,0 +1,132 @@
+name: Release
+
+# ADR-0002 Layer A: oasdiff-driven, release-PR-gated releases.
+#
+# On a push to main:
+#  - If info.version already moved past the latest tag, the release PR was just
+#    merged -> remind the maintainer to cut the GPG-signed tag. Tags are signed
+#    by a human (ADR-0001), never created in CI.
+#  - Otherwise, diff main against the latest tag with oasdiff, derive the semver
+#    bump (phase-aware per ADR-0001), regenerate CHANGELOG.md, bump all four
+#    info.version, and open a "Release vX.Y.Z" PR for a human to merge (the
+#    two-party gate for majors).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install oasdiff
+        run: go install github.com/oasdiff/oasdiff@latest
+
+      - name: Plan release
+        id: plan
+        run: |
+          set -u
+          head_ver=$(sed -n 's/^  version: \(.*\)/\1/p' openapi/foods.yaml | head -1)
+          base_tag=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          cur=${base_tag#v}
+
+          # Release PR merged: version is ahead of the latest tag. Tags are
+          # GPG-signed by a maintainer (ADR-0001), never cut in CI — so just
+          # remind, and let the human sign and push the tag.
+          if [ -n "$base_tag" ] && [ "$head_ver" != "$cur" ]; then
+            echo "Release v$head_ver is merged and awaiting a signed tag. Cut it locally:"
+            echo "  git tag -s v$head_ver -m 'Release v$head_ver' && git push origin v$head_ver"
+            echo "action=await-tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Otherwise classify the change against the latest tag.
+          git worktree add .base "$base_tag"
+          any_change=0
+          any_breaking=0
+          : > CHANGELOG.entry
+          for doc in foods releases sync billing; do
+            b=".base/openapi/${doc}.yaml"
+            r="openapi/${doc}.yaml"
+            cl=$(oasdiff changelog "$b" "$r" 2>/dev/null || true)
+            if [ -n "$cl" ] && ! printf '%s' "$cl" | grep -qiE 'no( api)? changes'; then
+              any_change=1
+              printf '### %s\n\n%s\n\n' "$doc" "$cl" >> CHANGELOG.entry
+            fi
+            if ! oasdiff breaking "$b" "$r" >/dev/null 2>&1; then
+              any_breaking=1
+            fi
+          done
+          rm -rf .base
+          git worktree prune
+
+          if [ "$any_change" = 0 ]; then
+            echo "No contract changes since $base_tag — nothing to release."
+            echo "action=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ "$any_breaking" = 1 ]; then change=breaking; else change=additive; fi
+
+          IFS=. read -r MA MI PA <<< "$cur"
+          if [ "$MA" -ge 1 ]; then
+            case "$change" in
+              breaking) MA=$((MA+1)); MI=0; PA=0;;
+              additive) MI=$((MI+1)); PA=0;;
+              *)        PA=$((PA+1));;
+            esac
+          else
+            # 0.x: the middle number absorbs breaking changes (ADR-0001).
+            case "$change" in
+              breaking) MI=$((MI+1)); PA=0;;
+              *)        PA=$((PA+1));;
+            esac
+          fi
+          next="$MA.$MI.$PA"
+          echo "Next version: $next ($change)"
+
+          # Bump all four documents in lockstep.
+          for doc in foods releases sync billing; do
+            sed -i "s/^  version: .*/  version: $next/" "openapi/${doc}.yaml"
+          done
+
+          # Prepend the changelog entry.
+          {
+            echo "## v$next — $(date -u +%Y-%m-%d)"
+            echo
+            cat CHANGELOG.entry
+            [ -f CHANGELOG.md ] && cat CHANGELOG.md
+          } > CHANGELOG.md.new
+          mv CHANGELOG.md.new CHANGELOG.md
+          rm -f CHANGELOG.entry
+
+          echo "action=pr" >> "$GITHUB_OUTPUT"
+          echo "next=$next" >> "$GITHUB_OUTPUT"
+          echo "change=$change" >> "$GITHUB_OUTPUT"
+
+      - name: Open release PR
+        if: steps.plan.outputs.action == 'pr'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: release/v${{ steps.plan.outputs.next }}
+          title: "Release v${{ steps.plan.outputs.next }}"
+          body: |
+            Automated release PR (ADR-0002). Bump: **${{ steps.plan.outputs.change }}**.
+
+            After merge, a maintainer cuts the GPG-signed tag
+            `v${{ steps.plan.outputs.next }}` (`git tag -s`). A **major** bump
+            requires the two-party sign-off from ADR-0001 before merge.
+
+            Version and CHANGELOG derived from `oasdiff` against the previous tag.
+          commit-message: "Release v${{ steps.plan.outputs.next }}"
+          labels: release
