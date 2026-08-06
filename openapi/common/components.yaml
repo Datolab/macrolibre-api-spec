@@ -72,6 +72,62 @@ components:
         message:
           type: string
 
+    ProvenanceBadge:
+      type: string
+      description: >-
+        Trust provenance shown on every result (FR-B-3), most to least
+        authoritative.
+      enum:
+        - official
+        - dietitian_verified
+        - open_data
+        - user_submitted
+
+    Food:
+      type: object
+      description: >-
+        A food record with per-100g macronutrients. Shared between the Food DB
+        API (Epic B) and dataset release payloads (Epic C).
+      required:
+        - id
+        - name_en
+        - provenance_badge
+        - kcal_100g
+        - protein_100g
+        - carbs_100g
+        - fat_100g
+      properties:
+        id:
+          type: string
+          format: uuid
+        name_en:
+          type: string
+          description: English name.
+        name_es:
+          type: [string, 'null']
+          description: Spanish name, when available.
+        region:
+          type: [string, 'null']
+          description: Region code the food is most relevant to (e.g. `GT`).
+        provenance_badge:
+          $ref: '#/components/schemas/ProvenanceBadge'
+        kcal_100g:
+          type: number
+          minimum: 0
+          description: Energy per 100 g, in kilocalories.
+        protein_100g:
+          type: number
+          minimum: 0
+          description: Protein per 100 g, in grams.
+        carbs_100g:
+          type: number
+          minimum: 0
+          description: Carbohydrate per 100 g, in grams.
+        fat_100g:
+          type: number
+          minimum: 0
+          description: Fat per 100 g, in grams.
+
   responses:
     TooManyRequests:
       description: Caller is over their tier's quota (FR-F-1/F-2/F-4).
