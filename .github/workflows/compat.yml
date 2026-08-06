@@ -1,0 +1,54 @@
+name: Compatibility
+
+on:
+  pull_request:
+
+# Enforces ADR-0001's deprecate-don't-break policy: a breaking change must not
+# ship without a matching major bump. Each document is diffed against the same
+# document at the latest release tag with oasdiff.
+#
+# The contract is currently 0.x, where semver permits breaking changes, so this
+# job is REPORT-ONLY: it surfaces breaking changes but does not fail. From 1.0.0
+# it becomes blocking automatically (see the `major` check below). See CLAUDE.md.
+
+jobs:
+  breaking:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need full history + tags to resolve the base tag
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Install oasdiff
+        run: go install github.com/oasdiff/oasdiff@latest
+      - name: Diff each document against the latest tag
+        run: |
+          set -u
+          base_tag=$(git describe --tags --abbrev=0)
+          echo "Comparing against $base_tag"
+          git worktree add .base "$base_tag"
+
+          # Enforce (fail the job) only once the contract is >= 1.0.0.
+          major=$(sed -n 's/^  version: \([0-9][0-9]*\)\..*/\1/p' openapi/foods.yaml | head -1)
+          if [ "${major:-0}" -ge 1 ]; then enforce=1; else enforce=0; fi
+          echo "Contract major=${major:-0}; enforcing=${enforce}"
+          echo "(0.x is report-only per ADR-0001; the gate blocks from 1.0.0)"
+
+          fail=0
+          for doc in foods releases sync billing; do
+            echo "::group::oasdiff breaking — $doc"
+            if oasdiff breaking ".base/openapi/${doc}.yaml" "openapi/${doc}.yaml"; then
+              echo "OK $doc: no breaking changes"
+            else
+              echo "BREAKING $doc: breaking changes detected"
+              [ "$enforce" = "1" ] && fail=1
+            fi
+            echo "::endgroup::"
+          done
+
+          if [ "$fail" = "1" ]; then
+            echo "Breaking changes require a major version bump — see CLAUDE.md and ADR-0001."
+            exit 1
+          fi
