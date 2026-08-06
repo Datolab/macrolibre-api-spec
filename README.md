@@ -35,8 +35,10 @@ npm run bundle   # emit self-contained documents to dist/
 
 ## Status
 
-Pre-first-endpoint. All four documents are valid but carry empty `paths: {}` —
-schemas and operations are still to be designed, starting with `foods.yaml`.
+**Alpha (`0.0.1`).** All four epics (B/C/E/F) have designed, lint-clean
+endpoints and schemas. Versioning and compatibility policy is proposed in
+[ADR-0001](docs/adr/0001-version-the-contract-with-semver-and-a-deprecate-dont-break-policy.md).
+Not yet tagged or published to a remote.
 
 ## License
 
