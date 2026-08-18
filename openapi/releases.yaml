@@ -187,7 +187,15 @@ components:
           $ref: '#/components/schemas/Layer'
         checksum:
           type: string
-          description: SHA-256 hex digest of the full release snapshot.
+          description: >-
+            Lowercase-hex SHA-256 of the release **artifact bytes** — the
+            compressed snapshot file exactly as served. A client that downloads
+            a full snapshot verifies it by hashing the bytes it received.
+
+
+            This is deliberately not the same value as `DatasetDelta.checksum`,
+            which is a digest of the *record set* rather than of a file; see
+            that field for why both exist.
         published_at:
           type: string
           format: date-time
@@ -248,10 +256,79 @@ components:
           $ref: '#/components/schemas/Layer'
         checksum:
           type: string
-          description: SHA-256 hex digest of the resulting dataset after applying.
+          description: >-
+            Lowercase-hex SHA-256 **dataset digest** of the records the client
+            should hold once this payload has been applied. Clients SHOULD
+            recompute it after applying and roll back on a mismatch (FR-C-5).
+
+
+            This digests the record *set*, not a file, because a client that has
+            applied a delta holds records and has no artifact bytes left to hash
+            — unlike `ReleaseSummary.checksum`, which covers served bytes.
+
+
+            The digest MUST be computed as follows. It is defined at byte level
+            because producer and consumer are written in different languages and
+            have to agree exactly.
+
+
+            **Per record**, build a byte string by appending, in order:
+
+            1. `id`, as its canonical lowercase hyphenated UUID string.
+
+            2. `name_en`.
+
+            3. `name_es`: a single `0x00` byte if the field is absent or null;
+               otherwise `0x01` followed by the value.
+
+            4. `region`: the same absent/present marker convention as `name_es`.
+
+            5. `kcal_100g`, `protein_100g`, `carbs_100g`, `fat_100g`, each
+               rendered as a decimal string with **exactly four digits after the
+               decimal point** (e.g. `130.0000`, `-0.0000` normalised to
+               `0.0000`), using `.` as the separator and no thousands separator,
+               exponent, or leading `+`.
+
+            Every *string* value above (steps 1, 2, and the values in 3–5) is
+            preceded by its UTF-8 byte length as a **big-endian unsigned 64-bit
+            integer**. The `0x00`/`0x01` presence markers are bare bytes and are
+            not length-prefixed.
+
+
+            **Across records**: encode each record independently, then sort the
+            resulting byte strings in ascending lexicographic byte order. The
+            digest is therefore independent of the order records arrive in, so a
+            client that applied a sequence of deltas agrees with one that
+            ingested a full snapshot.
+
+
+            **Finally**: SHA-256 over the ASCII bytes of the domain-separation
+            tag `macrolibre-dataset-v1`, followed by each sorted record byte
+            string in order. Render the result as lowercase hex.
+
+
+            Two details are load-bearing. Nutrients use fixed four-decimal
+            formatting rather than each language's default float-to-string,
+            which disagree on precision and edge cases; four decimals exceed the
+            precision of the upstream sources. Length-prefixing prevents
+            distinct field combinations from encoding to identical bytes (for
+            example `name_en` = `"ab"` with no `name_es`, versus `name_en` =
+            `"a"` with `name_es` = `"b"`).
         signature:
           type: string
-          description: Base64-encoded Ed25519 signature over the delta payload.
+          description: >-
+            Base64-encoded Ed25519 signature over this delta. Clients MUST
+            verify it before applying (FR-C-3).
+
+
+            The signed payload covers `from_version`, `to_version`, `layer`,
+            `checksum`, a dataset digest (as specified above) of the `changed`
+            records, and the `removed` id list — so a tampered record is
+            rejected *before* the client mutates its store, rather than only
+            being caught by the post-apply `checksum` comparison. It also
+            carries a domain-separation tag distinct from the one used for
+            `ReleaseManifest.signature`, so a signature over one artifact cannot
+            be replayed as the other.
         changed:
           type: array
           description: Added or modified food records.
