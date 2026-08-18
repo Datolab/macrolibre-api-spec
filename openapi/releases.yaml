@@ -289,6 +289,21 @@ components:
                `0.0000`), using `.` as the separator and no thousands separator,
                exponent, or leading `+`.
 
+               Ties MUST round **half up** — away from zero — decided against the
+               value's *exact* binary-floating-point expansion, not a
+               decimal-scaled approximation of it. So `2.90625` renders `2.9063`,
+               never `2.9062`. This is precisely the behaviour of ECMAScript's
+               `Number.prototype.toFixed`, so a JavaScript or ReScript
+               implementation can use it directly.
+
+               Specifying the mode is not pedantry: many languages (Rust and
+               Python among them) round ties to *even* by default and would
+               produce `2.9062` here, and real USDA figures are frequently k/32
+               values that land exactly on this tie — roughly 1% of nutrient
+               values in a production extract. Scaling by 10⁴ and rounding the
+               result is also not equivalent, because the multiplication perturbs
+               values that were never ties.
+
             Every *string* value above (steps 1, 2, and the values in 3–5) is
             preceded by its UTF-8 byte length as a **big-endian unsigned 64-bit
             integer**. The `0x00`/`0x01` presence markers are bare bytes and are
