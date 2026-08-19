@@ -337,13 +337,44 @@ components:
 
 
             The signed payload covers `from_version`, `to_version`, `layer`,
-            `checksum`, a dataset digest (as specified above) of the `changed`
-            records, and the `removed` id list — so a tampered record is
-            rejected *before* the client mutates its store, rather than only
-            being caught by the post-apply `checksum` comparison. It also
-            carries a domain-separation tag distinct from the one used for
-            `ReleaseManifest.signature`, so a signature over one artifact cannot
-            be replayed as the other.
+            `checksum`, a dataset digest of the `changed` records, and the
+            `removed` id list — so a tampered record is rejected *before* the
+            client mutates its store, rather than only being caught by the
+            post-apply `checksum` comparison.
+
+
+            Clients MUST verify against a public key obtained through a trusted
+            channel, **not** the `public_key` field of the payload being
+            verified: a document vouching for its own key proves nothing.
+
+
+            The signed bytes MUST be constructed as follows, using the same
+            big-endian u64 length-prefixed field encoding as the dataset digest
+            (see `checksum`):
+
+            1. The ASCII domain-separation tag `macrolibre-delta-v1`, *not*
+               length-prefixed. It differs from the manifest's tag so a
+               signature over one artifact cannot be replayed as the other.
+
+            2. `from_version`, as a length-prefixed string — the **empty string**
+               when null, so a full snapshot and a delta cannot collide.
+
+            3. `to_version`.
+
+            4. `layer`.
+
+            5. `checksum`.
+
+            6. The dataset digest of the `changed` array alone, computed by the
+               algorithm specified on `checksum` but over only those records.
+               Note this is normally *not* equal to `checksum`, which covers the
+               whole resulting dataset.
+
+            7. The number of `removed` entries, as its decimal string.
+
+            8. Each `removed` id, in the order given.
+
+            Steps 2–8 are each length-prefixed strings.
         changed:
           type: array
           description: Added or modified food records.
